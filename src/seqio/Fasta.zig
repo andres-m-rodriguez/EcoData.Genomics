@@ -34,11 +34,8 @@ pub const AllocError = Error || std.mem.Allocator.Error;
 // ============================================================================
 
 pub const Record = struct {
-    /// Sequence identifier (text after '>' before first space).
     identifier: []const u8,
-    /// Optional description (text after first space in header).
     description: ?[]const u8,
-    /// DNA sequence (A, T, C, G, N characters), concatenated from all lines.
     sequence: []const u8,
 
     /// Returns the GC content as a ratio (0.0 to 1.0).
