@@ -51,14 +51,12 @@ pub fn toErrorProbability(score: u8) f64 {
 /// Convert error probability to Phred score.
 /// P = 10^(-Q/10) => Q = -10 * log10(P)
 pub fn fromErrorProbability(probability: f64) u8 {
-    _ = probability;
-    @panic("not implemented");
+    return @intFromFloat(-10.0 * std.math.log10(probability));
 }
 
 /// Convert Phred score to accuracy (1 - error probability).
 pub fn toAccuracy(score: u8) f64 {
-    _ = score;
-    @panic("not implemented");
+    return 1.0 - toErrorProbability(score);
 }
 
 // ============================================================================
@@ -74,8 +72,14 @@ pub fn mean(quality: []const u8) f32 {
 
 /// Calculate median Phred score from quality string.
 pub fn median(quality: []const u8) u8 {
-    _ = quality;
-    @panic("not implemented");
+    var scores: [128]u8 = undefined;
+    for (quality, 0..) |char, i| scores[i] = decode(char);
+    const slice = scores[0..quality.len];
+    std.mem.sort(u8, slice, {}, std.sort.asc(u8));
+    return if (slice.len % 2 == 0)
+        (slice[slice.len / 2 - 1] + slice[slice.len / 2]) / 2
+    else
+        slice[slice.len / 2];
 }
 
 /// Count bases meeting minimum quality threshold.
@@ -93,10 +97,11 @@ pub fn findLowQualityPositions(
     quality: []const u8,
     min_score: u8,
 ) std.mem.Allocator.Error![]usize {
-    _ = allocator;
-    _ = quality;
-    _ = min_score;
-    @panic("not implemented");
+    var positions = std.ArrayList(usize).init(allocator);
+    for (quality, 0..) |char, i| {
+        if (decode(char) < min_score) try positions.append(i);
+    }
+    return positions.toOwnedSlice();
 }
 
 // ============================================================================
