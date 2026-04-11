@@ -11,9 +11,6 @@ const std = @import("std");
 const Io = std.Io;
 const phred = @import("phred.zig");
 
-// ============================================================================
-// Error Sets
-// ============================================================================
 
 pub const Error = error{
     InvalidHeader,
@@ -25,10 +22,6 @@ pub const Error = error{
 
 pub const ReadError = Error || error{ ReadFailed, StreamTooLong };
 
-// ============================================================================
-// Record Type
-// ============================================================================
-
 pub const Record = struct {
     header: []const u8,
     sequence: []const u8,
@@ -37,6 +30,31 @@ pub const Record = struct {
     pub fn qualityAt(self: Record, i: usize) u8 {
         return phred.decode(self.quality[i]);
     }
+    pub fn meanQuality(self: Record) f32 {
+        return phred.mean(self.quality);
+    }
+    pub fn meetsQualityThreshold(self: Record, min_phred: u8, min_fraction: f32) bool {
+        const passing = phred.countAboveThreshold(self.quality, min_phred);
+        return @as(f32, @floatFromInt(passing)) / @as(f32, @floatFromInt(self.quality.len)) >= min_fraction;
+    }
+      pub const Fixed = struct {
+          header: [256]u8,
+          header_len: u16,
+          sequence: [10000]u8,
+          seq_len: u16,
+          quality: [10000]u8,
+          qual_len: u16,
+
+          pub fn getHeader(self: *const Fixed) []const u8 {
+              return self.header[0..self.header_len];
+          }
+          pub fn getSequence(self: *const Fixed) []const u8 {
+              return self.sequence[0..self.seq_len];
+          }
+          pub fn getQuality(self: *const Fixed) []const u8 {
+              return self.quality[0..self.qual_len];
+          }
+      };
 };
 
 /// Parse next record from reader.
@@ -63,6 +81,15 @@ pub fn next(reader: *Io.Reader) ReadError!?Record {
 // Validation
 // ============================================================================
 
+pub fn isValid(record: Record) bool {
+    for (record.sequence) |char| {
+        if (!isValidBase(char)) return false;
+    }
+    for (record.quality) |char| {
+        if (!isValidQuality(char)) return false;
+    }
+    return true;
+}
 pub fn isValidBase(char: u8) bool {
     return switch (char) {
         'A', 'T', 'C', 'G', 'N', 'a', 't', 'c', 'g', 'n' => true,
