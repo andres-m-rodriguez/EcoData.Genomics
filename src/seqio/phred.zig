@@ -1,29 +1,11 @@
-//! Phred quality score utilities.
-//!
-//! Phred scores encode the probability of a sequencing error:
-//!   Q = -10 * log10(P)
-//!
-//! Where P is the probability that the base call is incorrect.
-//! Common quality thresholds:
-//!   - Q10: 90% accuracy (1 in 10 chance of error)
-//!   - Q20: 99% accuracy (1 in 100 chance of error)
-//!   - Q30: 99.9% accuracy (1 in 1000 chance of error)
-//!   - Q40: 99.99% accuracy (1 in 10000 chance of error)
-//!
-//! FASTQ files encode Phred scores as ASCII characters.
-//! This module supports Phred+33 (Sanger/Illumina 1.8+) encoding.
-
 const std = @import("std");
 
 // ============================================================================
 // Encoding Constants
 // ============================================================================
 
-/// ASCII offset for Phred+33 encoding (Sanger/Illumina 1.8+).
+/// ASCII offset for Phred+33 encoding 
 pub const phred33_offset: u8 = 33;
-
-/// ASCII offset for Phred+64 encoding (Illumina 1.3-1.7, legacy).
-pub const phred64_offset: u8 = 64;
 
 /// Minimum valid ASCII character in Phred+33 encoding.
 pub const min_char: u8 = '!'; // ASCII 33, Q=0
@@ -57,25 +39,13 @@ pub fn encode(score: u8) u8 {
     return score +| phred33_offset;
 }
 
-/// Decode ASCII character to Phred score (Phred+64, legacy).
-pub fn decode64(char: u8) u8 {
-    return char -| phred64_offset;
-}
-
-/// Encode Phred score to ASCII character (Phred+64, legacy).
-pub fn encode64(score: u8) u8 {
-    return score +| phred64_offset;
-}
-
 // ============================================================================
 // Probability Conversion
 // ============================================================================
 
 /// Convert Phred score to error probability.
-/// Q = -10 * log10(P) => P = 10^(-Q/10)
 pub fn toErrorProbability(score: u8) f64 {
-    _ = score;
-    @panic("not implemented");
+    return std.math.pow(f64, 10.0, -@as(f64, @floatFromInt(score)) / 10.0);
 }
 
 /// Convert error probability to Phred score.
@@ -97,8 +67,9 @@ pub fn toAccuracy(score: u8) f64 {
 
 /// Calculate mean Phred score from quality string.
 pub fn mean(quality: []const u8) f32 {
-    _ = quality;
-    @panic("not implemented");
+    var sum: u32 = 0;
+    for (quality) |char| sum += decode(char);
+    return @as(f32, @floatFromInt(sum)) / @as(f32, @floatFromInt(quality.len));
 }
 
 /// Calculate median Phred score from quality string.
@@ -109,9 +80,11 @@ pub fn median(quality: []const u8) u8 {
 
 /// Count bases meeting minimum quality threshold.
 pub fn countAboveThreshold(quality: []const u8, min_score: u8) usize {
-    _ = quality;
-    _ = min_score;
-    @panic("not implemented");
+    var count: usize = 0;
+    for (quality) |char| {
+        if (decode(char) >= min_score) count += 1;
+    }
+    return count;
 }
 
 /// Find positions where quality drops below threshold.
@@ -156,8 +129,11 @@ pub const Encoding = enum {
 /// Attempt to detect encoding from quality string.
 /// Returns .phred33 if any char < 64, .phred64 if all chars >= 64, .unknown otherwise.
 pub fn detectEncoding(quality: []const u8) Encoding {
-    _ = quality;
-    @panic("not implemented");
+    for (quality) |char| {
+        if (char < 64) return .phred33;
+    }
+    if (quality.len == 0) return .unknown;
+    return .phred64;
 }
 
 // ============================================================================
