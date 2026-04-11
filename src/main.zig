@@ -1,6 +1,8 @@
 const std = @import("std");
 const EcoData_Genomics = @import("EcoData_Genomics");
 const seqio = EcoData_Genomics.seqio;
+const Fastq = seqio.Fastq;
+const FastqRecord = Fastq.Record;
 const phred = seqio.phred;
 
 pub fn main(init: std.process.Init) !void {
@@ -25,8 +27,8 @@ pub fn main(init: std.process.Init) !void {
     var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
     var decompressor = std.compress.flate.Decompress.init(&file_reader.interface, .gzip, &decompress_buffer);
 
-    var queue_buffer: [128]InlineRecord = undefined;
-    var queue = std.Io.Queue(InlineRecord).init(&queue_buffer);
+    var queue_buffer: [128]FastqRecord.Fixed = undefined;
+    var queue = std.Io.Queue(FastqRecord.Fixed).init(&queue_buffer);
 
     var parser = try std.Io.concurrent(init.io, parseRecords, .{
         init.io,
@@ -45,37 +47,24 @@ pub fn main(init: std.process.Init) !void {
     try console_writer.flush();
 }
 
-fn writeCsv(io: std.Io, queue: *std.Io.Queue(InlineRecord), writer: *std.Io.Writer) !u64 {
+fn writeCsv(io: std.Io, queue: *std.Io.Queue(FastqRecord.Fixed), writer: *std.Io.Writer) !u64 {
     var counter: u64 = 0;
     while (true) {
         const record = queue.getOne(io) catch |err| switch (err) {
             error.Closed => break,
             else => return err
         };
-        try writer.print("\"{s}\",{d:.2}\n", .{ record.id[0..record.id_len], record.mean });
+        try writer.print("\"{s}\",{d:.2}\n", .{ record.getHeader(), record.meanQuality() });
         counter += 1;
     }
     try writer.flush();
 
     return counter;
 }
-fn parseRecords(io: std.Io, queue: *std.Io.Queue(InlineRecord), reader: *std.Io.Reader) !void {
+fn parseRecords(io: std.Io, queue: *std.Io.Queue(FastqRecord.Fixed), reader: *std.Io.Reader) !void {
     while (try seqio.Fastq.next(reader)) |record| {
-        try queue.putOne(io, InlineRecord.fromRecord(record));
+        try queue.putOne(io, FastqRecord.Fixed.fromRecord(record));
     }
 
     queue.close(io);
 }
-
-pub const InlineRecord = struct {
-    id: [256]u8,
-    id_len: u8,
-    mean: f32,
-    pub fn fromRecord(record: seqio.Fastq.Record) InlineRecord {
-        var self: InlineRecord = undefined;
-        @memcpy(self.id[0..record.header.len], record.header);
-        self.id_len = @intCast(record.header.len);
-        self.mean = record.meanQuality();
-        return self;
-    }
-};

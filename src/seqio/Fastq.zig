@@ -11,7 +11,6 @@ const std = @import("std");
 const Io = std.Io;
 const phred = @import("phred.zig");
 
-
 pub const Error = error{
     InvalidHeader,
     MissingSequence,
@@ -37,24 +36,38 @@ pub const Record = struct {
         const passing = phred.countAboveThreshold(self.quality, min_phred);
         return @as(f32, @floatFromInt(passing)) / @as(f32, @floatFromInt(self.quality.len)) >= min_fraction;
     }
-      pub const Fixed = struct {
-          header: [256]u8,
-          header_len: u16,
-          sequence: [10000]u8,
-          seq_len: u16,
-          quality: [10000]u8,
-          qual_len: u16,
+    pub const Fixed = struct {
+        header: [256]u8,
+        header_len: u16,
+        sequence: [512]u8,
+        seq_len: u16,
+        quality: [512]u8,
+        qual_len: u16,
 
-          pub fn getHeader(self: *const Fixed) []const u8 {
-              return self.header[0..self.header_len];
-          }
-          pub fn getSequence(self: *const Fixed) []const u8 {
-              return self.sequence[0..self.seq_len];
-          }
-          pub fn getQuality(self: *const Fixed) []const u8 {
-              return self.quality[0..self.qual_len];
-          }
-      };
+        pub fn getHeader(self: *const Fixed) []const u8 {
+            return self.header[0..self.header_len];
+        }
+        pub fn getSequence(self: *const Fixed) []const u8 {
+            return self.sequence[0..self.seq_len];
+        }
+        pub fn getQuality(self: *const Fixed) []const u8 {
+            return self.quality[0..self.qual_len];
+        }
+        pub fn meanQuality(self: Fixed) f32 {
+            return phred.mean(self.getQuality());
+        }
+        pub fn fromRecord(record: Record) Fixed {
+            var self: Fixed = undefined;
+            @memcpy(self.header[0..record.header.len], record.header);
+            self.header_len = @intCast(record.header.len);
+            @memcpy(self.sequence[0..record.sequence.len], record.sequence);
+            self.seq_len = @intCast(record.sequence.len);
+            @memcpy(self.quality[0..record.quality.len], record.quality);
+            self.qual_len = @intCast(record.quality.len);
+
+            return self;
+        }
+    };
 };
 
 /// Parse next record from reader.
