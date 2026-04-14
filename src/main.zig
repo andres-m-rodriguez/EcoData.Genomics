@@ -4,7 +4,7 @@ const seqio = EcoData_Genomics.seqio;
 const Fastq = seqio.Fastq;
 const FastqRecord = Fastq.Record;
 const trimmer = EcoData_Genomics.trimmer;
-const kmer = EcoData_Genomics.kmer; 
+const kmer = EcoData_Genomics.kmer;
 
 const phred = seqio.phred;
 
