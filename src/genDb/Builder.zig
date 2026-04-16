@@ -40,14 +40,19 @@ pub const BuildOptions = struct {
 pub fn build(self: *Self, options: BuildOptions) !?Database {
     if (options.writer) |writer| {
         self.look_up.sort();
+
         try writer.writeInt(u8, self.k, .little);
+        try writer.writeAll(&[_]u8{0} ** 7);
         try writer.writeInt(u64, self.look_up.map.count(), .little);
 
-        var it = self.look_up.map.iterator();
-        while (it.next()) |entry| {
-            try writer.writeInt(u64, entry.key_ptr.*, .little);
-            try writer.writeInt(u32, entry.value_ptr.*, .little);
+        for (self.look_up.map.keys()) |key| {
+            try writer.writeInt(u64, key, .little);
         }
+
+        for (self.look_up.map.values()) |val| {
+            try writer.writeInt(u32, val, .little);
+        }
+
         try writer.flush();
     }
 

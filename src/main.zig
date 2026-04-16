@@ -29,16 +29,38 @@ pub fn main(init: std.process.Init) !void {
         .writer = &output_file_writer.interface,
         .transfer_organisms = true,
     }) orelse unreachable;
-    defer database.deinit(init.gpa);
+    defer database.deinit(init.io, init.gpa);
 
     output_file.close(init.io);
 
-    const input_file = try std.Io.Dir.cwd().openFile(init.io, output_file_path, .{});
-    defer input_file.close(init.io);
-    var input_file_buffer: [128 * 1024]u8 = undefined;
-    var input_file_reader = input_file.reader(init.io, &input_file_buffer);
+    try database.loadIndexFromFile(init.io, output_file_path);
+    try console_writer.interface.print("Database loaded: {} kmers\n", .{database.kmers.len});
 
-    try database.loadIndex(init.gpa, &input_file_reader.interface);
-    try console_writer.interface.print("Database generation completed!", .{});
+    // Verify binary search works by looking up first and last kmers
+    if (database.kmers.len > 0) {
+        const first_kmer = database.kmers[0];
+        const last_kmer = database.kmers[database.kmers.len - 1];
+
+        if (database.getTaxon(first_kmer)) |taxon| {
+            try console_writer.interface.print("First kmer lookup: taxon {}\n", .{taxon});
+        } else {
+            try console_writer.interface.print("First kmer lookup failed!\n", .{});
+        }
+
+        if (database.getTaxon(last_kmer)) |taxon| {
+            try console_writer.interface.print("Last kmer lookup: taxon {}\n", .{taxon});
+        } else {
+            try console_writer.interface.print("Last kmer lookup failed!\n", .{});
+        }
+
+        // Test a non-existent kmer (all 1s, unlikely to exist)
+        if (database.getTaxon(0xFFFFFFFFFFFFFFFF)) |_| {
+            try console_writer.interface.print("Unexpected: found non-existent kmer\n", .{});
+        } else {
+            try console_writer.interface.print("Non-existent kmer correctly returned null\n", .{});
+        }
+    }
+
+    try console_writer.interface.print("Database verification completed!\n", .{});
     try console_writer.interface.flush();
 }
