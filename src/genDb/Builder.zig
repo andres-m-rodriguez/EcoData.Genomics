@@ -35,6 +35,8 @@ pub const BuildOptions = struct {
 };
 
 pub fn build(self: *Self, options: BuildOptions) !?Database {
+    self.look_up.sort();
+
     if (options.writer) |writer| {
         try writer.writeInt(u8, self.k, .little);
         try writer.writeInt(u64, self.look_up.map.count(), .little);

@@ -35,8 +35,17 @@ pub fn addSequence(self: *Self, allocator: std.mem.Allocator, sequence: []const 
         if (!entry.found_existing) {
             entry.value_ptr.* = taxon_id;
         }
-        // If already exists, keep the first taxon (don't overwrite)
     }
+}
+
+pub fn sort(self: *Self) void {
+    const Ctx = struct {
+        keys: []u64,
+        pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+            return ctx.keys[a] < ctx.keys[b];
+        }
+    };
+    self.map.sort(Ctx{ .keys = self.map.keys() });
 }
 
 test "index kmers to taxon" {
