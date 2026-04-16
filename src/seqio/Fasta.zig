@@ -1,194 +1,83 @@
-//! FASTA format parser.
-//!
-//! FASTA files contain sequences without quality scores.
-//! Each record consists of:
-//!   1. Header line starting with '>' followed by identifier and optional description
-//!   2. One or more sequence lines containing A, T, C, G, N characters
-//!
-//! Sequence lines are typically wrapped at 60 or 80 characters but may vary.
-//! This parser concatenates multi-line sequences into a single sequence field.
-
 const std = @import("std");
 const Io = std.Io;
 
 const Fasta = @This();
 
-// ============================================================================
-// Error Sets
-// ============================================================================
-
 pub const Error = error{
-    /// Header line does not start with '>'.
     InvalidHeader,
-    /// Sequence is empty (no sequence lines after header).
     EmptySequence,
-    /// Encountered invalid character in sequence.
     InvalidSequenceChar,
 };
 
 pub const ReadError = Error || Io.Reader.Error;
 pub const AllocError = Error || std.mem.Allocator.Error;
 
-// ============================================================================
-// Record Type
-// ============================================================================
-
 pub const Record = struct {
-    identifier: []const u8,
-    description: ?[]const u8,
-    sequence: []const u8,
+    header: []const u8 = "",
+    sequences: Sequence = .{},
 
-    /// Returns the GC content as a ratio (0.0 to 1.0).
-    pub fn gcContent(self: Record) f32 {
-        _ = self;
-        @panic("not implemented");
-    }
-
-    /// Returns the length of the sequence.
-    pub fn len(self: Record) usize {
-        return self.sequence.len;
+    pub fn deinit(self: *Record, allocator: std.mem.Allocator) void {
+        allocator.free(self.header);
+        self.sequences.deinit(allocator);
     }
 };
+pub const Sequence = struct {
+    data: std.ArrayList(u8) = .empty,
+    line_ends: std.ArrayList(usize) = .empty,
+    pub fn deinit(self: *Sequence, allocator: std.mem.Allocator) void {
+        self.data.deinit(allocator);
+        self.line_ends.deinit(allocator);
+    }
+    pub fn appendLine(self: *Sequence, allocator: std.mem.Allocator, line: []const u8) !void {
+        try self.data.appendSlice(allocator, line);
+        try self.line_ends.append(allocator, self.data.items.len);
+    }
 
-// ============================================================================
-// Parser State
-// ============================================================================
+    pub fn getLine(self: *const Sequence, i: usize) []const u8 {
+        const start = if (i == 0) 0 else self.line_ends.items[i - 1];
+        const end = self.line_ends.items[i];
+        return self.data.items[start..end];
+    }
+    pub fn iterator(self: *const Sequence) Iterator {
+        return .{ .sequence = self };
+    }
 
-pub const State = enum {
-    /// Expecting header line starting with '>'.
-    header,
-    /// Reading sequence lines until next header or EOF.
-    sequence,
-};
+    pub const Iterator = struct {
+        sequence: *const Sequence,
+        index: usize = 0,
 
-pub const Diagnostics = struct {
-    /// Current line number in input (1-indexed).
-    line_number: u64 = 1,
-    /// Number of complete records parsed.
-    records_parsed: u64 = 0,
-    /// Total bytes processed.
-    bytes_processed: u64 = 0,
-};
+        pub fn next(self: *Iterator) ?[]const u8 {
+            if (self.index >= self.sequence.line_ends.items.len) return null;
+            const line = self.sequence.getLine(self.index);
+            self.index += 1;
+            return line;
+        }
 
-// ============================================================================
-// Parser Fields
-// ============================================================================
-
-state: State = .header,
-diagnostics: ?*Diagnostics = null,
-allocator: std.mem.Allocator,
-
-// ============================================================================
-// Initialization
-// ============================================================================
-
-pub fn init(allocator: std.mem.Allocator) Fasta {
-    return .{
-        .allocator = allocator,
+        pub fn reset(self: *Iterator) void {
+            self.index = 0;
+        }
     };
-}
+};
 
-pub fn initWithDiagnostics(allocator: std.mem.Allocator, diagnostics: *Diagnostics) Fasta {
-    return .{
-        .allocator = allocator,
-        .diagnostics = diagnostics,
-    };
-}
-
-// ============================================================================
-// Core API
-// ============================================================================
-
-/// Parse next record from reader.
-/// Returns null at end of input, error on malformed input.
-/// Caller owns returned memory and must free with `freeRecord`.
-pub fn next(self: *Fasta, reader: *Io.Reader) (AllocError || Io.Reader.Error)!?Record {
-    _ = self;
-    _ = reader;
-    @panic("not implemented");
-}
-
-/// Free memory allocated for a record.
-pub fn freeRecord(self: *Fasta, record: Record) void {
-    _ = self;
-    _ = record;
-    @panic("not implemented");
-}
-
-/// Skip the next record without allocating or returning it.
-pub fn skip(self: *Fasta, reader: *Io.Reader) ReadError!bool {
-    _ = self;
-    _ = reader;
-    @panic("not implemented");
-}
-
-/// Reset parser state for reuse with a new input.
-pub fn reset(self: *Fasta) void {
-    self.state = .header;
-    if (self.diagnostics) |d| {
-        d.line_number = 1;
-        d.records_parsed = 0;
-        d.bytes_processed = 0;
-    }
-}
-
-// ============================================================================
-// Convenience Functions
-// ============================================================================
-
-/// Iterator interface for use with for loops.
-pub fn iterator(allocator: std.mem.Allocator, reader: *Io.Reader) Iterator {
-    return Iterator.init(allocator, reader);
-}
-
-pub const Iterator = struct {
-    reader: *Io.Reader,
-    parser: Fasta,
-
-    pub fn init(allocator: std.mem.Allocator, reader: *Io.Reader) Iterator {
-        return .{
-            .reader = reader,
-            .parser = Fasta.init(allocator),
+pub fn next(allocator: std.mem.Allocator, reader: *std.Io.Reader) !?Record {
+    var record = Record{};
+    errdefer record.deinit(allocator);
+    const identifier_line = try reader.takeDelimiter('\n') orelse return null;
+    if (identifier_line.len == 0 or identifier_line[0] != '>')
+        return Error.InvalidHeader;
+    const identifier = try allocator.dupe(u8, identifier_line);
+    record.header = identifier;
+    while (true) {
+        const next_byte = reader.peekByte() catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => return err,
         };
+
+        if (next_byte == '>') break;
+
+        const current_sequence = try reader.takeDelimiter('\n') orelse break;
+        try record.sequences.appendLine(allocator, current_sequence);
     }
 
-    pub fn next(self: *Iterator) (AllocError || Io.Reader.Error)!?Record {
-        return self.parser.next(self.reader);
-    }
-};
-
-// ============================================================================
-// Validation
-// ============================================================================
-
-/// Check if a character is a valid DNA base (A, T, C, G, N).
-pub fn isValidBase(char: u8) bool {
-    return switch (char) {
-        'A', 'T', 'C', 'G', 'N', 'a', 't', 'c', 'g', 'n' => true,
-        else => false,
-    };
-}
-
-/// Check if a character is valid in a FASTA sequence line.
-/// Includes DNA bases plus common gap/mask characters.
-pub fn isValidSequenceChar(char: u8) bool {
-    return switch (char) {
-        'A', 'T', 'C', 'G', 'N', 'a', 't', 'c', 'g', 'n' => true,
-        '-', '.' => true, // gap characters
-        else => false,
-    };
-}
-
-// ============================================================================
-// Tests
-// ============================================================================
-
-test "isValidBase" {
-    try std.testing.expect(isValidBase('A'));
-    try std.testing.expect(isValidBase('T'));
-    try std.testing.expect(isValidBase('C'));
-    try std.testing.expect(isValidBase('G'));
-    try std.testing.expect(isValidBase('N'));
-    try std.testing.expect(!isValidBase('X'));
-    try std.testing.expect(!isValidBase('>'));
+    return record;
 }
