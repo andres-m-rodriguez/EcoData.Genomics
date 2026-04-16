@@ -17,6 +17,9 @@ pub fn init(k: u6) Self {
 }
 pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
     self.look_up.deinit(allocator);
+    for (self.organisms.values()) |org| {
+        allocator.free(org.name);
+    }
     self.organisms.deinit(allocator);
 }
 pub fn addFasta(self: *Self, allocator: std.mem.Allocator, reader: *std.Io.Reader, taxon_id: u32) !void {
@@ -25,19 +28,18 @@ pub fn addFasta(self: *Self, allocator: std.mem.Allocator, reader: *std.Io.Reade
         defer rec.deinit(allocator);
 
         try self.look_up.addSequence(allocator, record.sequences.data.items, taxon_id, self.k);
-        try self.organisms.put(allocator, taxon_id, Organism{ .name = record.header });
+        const name = try allocator.dupe(u8, record.header);
+        try self.organisms.put(allocator, taxon_id, Organism{ .name = name });
     }
 }
 pub const BuildOptions = struct {
     writer: ?*std.Io.Writer = null,
     transfer_organisms: bool = true,
-    transfer_index: bool = true,
 };
 
 pub fn build(self: *Self, options: BuildOptions) !?Database {
-    self.look_up.sort();
-
     if (options.writer) |writer| {
+        self.look_up.sort();
         try writer.writeInt(u8, self.k, .little);
         try writer.writeInt(u64, self.look_up.map.count(), .little);
 
@@ -49,21 +51,13 @@ pub fn build(self: *Self, options: BuildOptions) !?Database {
         try writer.flush();
     }
 
-    if (!options.transfer_organisms and !options.transfer_index) {
+    if (!options.transfer_organisms) {
         return null;
     }
 
     var db = Database.init(self.k);
-
-    if (options.transfer_organisms) {
-        db.loadOrganismsFromMemory(self.organisms);
-        self.organisms = .empty;
-    }
-
-    if (options.transfer_index) {
-        db.loadIndexFromMemory(self.look_up);
-        self.look_up = .{};
-    }
+    db.loadOrganismsFromMemory(self.organisms);
+    self.organisms = .empty;
 
     return db;
 }
