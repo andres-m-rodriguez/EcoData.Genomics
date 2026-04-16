@@ -45,7 +45,7 @@ pub fn sort(self: *Self) void {
             return ctx.keys[a] < ctx.keys[b];
         }
     };
-    self.map.sort(Ctx{ .keys = self.map.keys() });
+    self.map.sortUnstable(Ctx{ .keys = self.map.keys() });
 }
 
 test "index kmers to taxon" {
