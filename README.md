@@ -2,39 +2,42 @@
 
 A genomics pipeline built in Zig. Takes raw DNA sequencing reads and works them through a series of stages — parsing, quality filtering, k-mer analysis, classification, and scoring — to produce an actionable water quality index.
 
-> **Status:** Early development. Currently building `seqio`, the sequence I/O layer.
+> **Status:** Core pipeline functional. Database building and binary serialization working.
 
 ## The pipeline
 
 ```
-seqio → trimmer → kmer → classifier → index
+seqio → trimmer → kmer → genDb → classifier → index
 ```
 
-**`seqio` — Sequence I/O** ← currently being built
+**`seqio` — Sequence I/O** ✓
 
-The entry point. Reads and parses FASTQ and FASTA files — the standard formats that DNA sequencing output produces. A FASTQ file is a list of DNA reads, where each read has four parts: an identifier, the DNA sequence itself (a string of A, T, C, G letters), a separator, and a quality score string encoding how confident the sequencer was about each letter it read.
+Parses FASTQ and FASTA files. FASTQ records can borrow from the reader buffer or allocate, avoiding unnecessary copies. FASTA sequences stored as concatenated data with line indices.
 
-This stage produces structured records that the rest of the pipeline consumes. No analysis yet — just turning raw files into something the next stage can work with.
+**`trimmer` — Quality trimmer** ✓
 
-**`trimmer` — Quality trimmer**
+Applies sliding window quality filtering using Phred scores. Removes low-confidence bases from read ends.
 
-Raw sequencing reads are noisy. The ends of reads in particular tend to have low confidence scores — the sequencer was less certain about those bases. Before doing any biological analysis on the data, unreliable reads and low-quality ends need to be removed.
+**`kmer` — k-mer encoding and counting** ✓
 
-This stage takes the parsed records from `seqio`, applies quality thresholds using the Phred scores encoded in the quality string, and outputs only the reads worth analyzing.
+- `encoding`: 2-bit encoding (A=00, C=01, G=10, T=11), packs up to 32 bases into u64
+- `Counter`: kmer → count frequency table
+- `Index`: kmer → taxon_id classification lookup
+- `K` presets: kraken1 (31), kraken2 (35), default (31), minimizer (21)
 
-**`kmer` — k-mer counter**
+**`genDb` — Database builder** ✓
 
-A k-mer is a substring of length k. Every DNA sequence can be broken into overlapping k-mers — for example the sequence `ATCGAT` with k=3 gives `ATC`, `TCG`, `CGA`, `GAT`. Counting how frequently each k-mer appears across all reads produces a frequency table that acts as a fingerprint of the sample.
-
-Different organisms have characteristic k-mer distributions. This fingerprint is what the classifier uses to identify what's in the sample — without needing to fully assemble genomes from the reads, which is much more computationally expensive.
+- `Builder`: builds kmer index from multiple FASTA reference genomes
+- `Database`: loads index from binary file or memory for classification
+- Binary format: little-endian, k (u8) + count (u64) + entries (u64 kmer, u32 taxon)
 
 **`classifier` — Metagenomics classifier**
 
-Takes the k-mer frequency table and compares it against reference databases of known organism k-mer profiles (Silva 16S rRNA database for bacteria, NCBI RefSeq for broader coverage). Outputs a species abundance table — a list of organisms identified in the sample with their relative percentages.
+*Next up.* Will take reads, extract kmers, look up taxon hits, and return classification.
 
 **`index` — Water quality index**
 
-Translates the species abundance table into a single health score. Maps microbial composition against known contamination indicators and ecological health benchmarks. The final output that integrates with EcoData.
+Translates species abundance into a health score based on contamination indicators.
 
 ## How it fits into the bigger picture
 
