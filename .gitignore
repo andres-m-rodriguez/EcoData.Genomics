@@ -2,5 +2,5 @@
 zig-out/
 *.o
 *.csv
-*.gb
+*.egdb
 *.py

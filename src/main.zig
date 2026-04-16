@@ -9,7 +9,7 @@ pub fn main(init: std.process.Init) !void {
     var console_writer = std.Io.File.stdout().writer(init.io, &console_writer_buffer);
 
     const data_file_path = "data/reference_genomes/ecoli_k12.fna.gz";
-    const output_file_path = "output.gb";
+    const output_file_path = "output.egdb";
 
     const file = try std.Io.Dir.cwd().openFile(init.io, data_file_path, .{});
     defer file.close(init.io);

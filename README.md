@@ -29,7 +29,7 @@ Applies sliding window quality filtering using Phred scores. Removes low-confide
 
 - `Builder`: builds kmer index from multiple FASTA reference genomes
 - `Database`: loads index from binary file or memory for classification
-- Binary format: little-endian, k (u8) + count (u64) + entries (u64 kmer, u32 taxon)
+- Binary format (.egdb): little-endian, k (u8) + count (u64) + entries (u64 kmer, u32 taxon)
 
 **`classifier` — Metagenomics classifier**
 
