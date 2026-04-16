@@ -9,7 +9,7 @@ pub fn trimSlidingWindow(value: []const u8, k: u32, threshold: u8) u32 {
     var left_index: u32 = 0;
     var right_index = k;
     var sum: i32 = 0;
-for (value[0..k]) |v| sum += phred.decode(v);
+    for (value[0..k]) |v| sum += phred.decode(v);
     if (@divFloor(sum, @as(i32, @intCast(k))) < threshold)
         return 0;
 
