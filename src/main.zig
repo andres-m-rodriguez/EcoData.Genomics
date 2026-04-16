@@ -16,7 +16,6 @@ pub fn main(init: std.process.Init) !void {
     var file_reader_buffer: [128 * 1024]u8 = undefined;
     var file_reader = file.reader(init.io, &file_reader_buffer);
 
-    // Decompress gzip
     var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
     var decompressor = std.compress.flate.Decompress.init(&file_reader.interface, .gzip, &decompress_buffer);
     var builder = genDb.Builder.init(kmer.K.kraken2);
