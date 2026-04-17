@@ -5,7 +5,7 @@ const phred = seqio.phred;
 const Threshold = @import("../seqio.zig").phred.Threshold;
 const FastqRecord = Fastq.Record;
 
-pub fn trimSlidingWindow(value: []const u8, k: u32, threshold: u8) u32 {
+pub fn trimSlidingWindow(value: []const u8, k: u32, threshold: u8) usize {
     var left_index: u32 = 0;
     var right_index = k;
     var sum: i32 = 0;
@@ -25,10 +25,14 @@ pub fn trimSlidingWindow(value: []const u8, k: u32, threshold: u8) u32 {
         right_index += 1;
     }
 
-    return @intCast(value.len);
+    return value.len;
 }
-pub fn validateMean(record: FastqRecord, min: u8) bool {
-    return record.meanQuality() >= @as(f32, @floatFromInt(min));
+pub fn validateMean(quality: []const u8, min: u8) bool {
+    if (quality.len == 0) return false;
+    var sum: u32 = 0;
+    for (quality) |q| sum += phred.decode(q);
+    const mean = @as(f32, @floatFromInt(sum)) / @as(f32, @floatFromInt(quality.len));
+    return mean >= @as(f32, @floatFromInt(min));
 }
 pub const Options = struct {
     window_size: u32 = 4,
@@ -36,21 +40,16 @@ pub const Options = struct {
     min_length: u32 = 50,
     min_mean_quality: u8 = Threshold.q20,
 };
-pub fn trim(record: FastqRecord, options: Options) ?FastqRecord {
-    const cut = trimSlidingWindow(record.quality, options.window_size, options.min_window_quality);
-    const trimmed = FastqRecord{
-        .header = record.header,
-        .sequence = record.sequence[0..cut],
-        .quality = record.quality[0..cut],
-    };
-    if (trimmed.quality.len < options.min_length)
+pub fn trim(quality: []const u8, options: Options) ?usize {
+    const cut = trimSlidingWindow(quality, options.window_size, options.min_window_quality);
+
+    if (cut < options.min_length)
         return null;
 
-    const is_valid = validateMean(trimmed, options.min_mean_quality);
-    if (!is_valid)
+    if (!validateMean(quality[0..cut], options.min_mean_quality))
         return null;
 
-    return trimmed;
+    return cut;
 }
 
 test "can i" {
