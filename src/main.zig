@@ -18,22 +18,19 @@ pub fn main(init: std.process.Init) !void {
 
     var decompress_buffer: [std.compress.flate.max_window_len]u8 = undefined;
     var decompressor = std.compress.flate.Decompress.init(&file_reader.interface, .gzip, &decompress_buffer);
-    var builder = genDb.Builder.init(kmer.K.kraken2);
-    try builder.addFasta(init.gpa, &decompressor.reader, 1);
+    var builder = genDb.Builder.init(kmer.K.kraken2_k, kmer.K.kraken2_l);
+    try builder.addFasta(init.gpa, &decompressor.reader);
     defer builder.deinit(init.gpa);
     const output_file = try std.Io.Dir.cwd().createFile(init.io, output_file_path, .{});
     var output_file_buffer: [128 * 1024]u8 = undefined;
     var output_file_writer = output_file.writer(init.io, &output_file_buffer);
 
-    var database = try builder.build(.{
-        .writer = &output_file_writer.interface,
-        .transfer_organisms = true,
-    }) orelse unreachable;
-    defer database.deinit(init.io, init.gpa);
-
+    try builder.build(&output_file_writer.interface);
     output_file.close(init.io);
 
-    try database.loadIndexFromFile(init.io, output_file_path);
+    var database = genDb.Database.init(kmer.K.kraken2_k, kmer.K.kraken2_l);
+    defer database.deinit(init.io, init.gpa);
+    try database.loadFromFile(init.io, init.gpa, output_file_path);
     try console_writer.interface.print("Database loaded: {} kmers\n", .{database.kmers.len});
 
     // Verify binary search works by looking up first and last kmers
@@ -41,20 +38,20 @@ pub fn main(init: std.process.Init) !void {
         const first_kmer = database.kmers[0];
         const last_kmer = database.kmers[database.kmers.len - 1];
 
-        if (database.getTaxon(first_kmer)) |taxon| {
+        if (database.getTaxonId(first_kmer)) |taxon| {
             try console_writer.interface.print("First kmer lookup: taxon {}\n", .{taxon});
         } else {
             try console_writer.interface.print("First kmer lookup failed!\n", .{});
         }
 
-        if (database.getTaxon(last_kmer)) |taxon| {
+        if (database.getTaxonId(last_kmer)) |taxon| {
             try console_writer.interface.print("Last kmer lookup: taxon {}\n", .{taxon});
         } else {
             try console_writer.interface.print("Last kmer lookup failed!\n", .{});
         }
 
         // Test a non-existent kmer (all 1s, unlikely to exist)
-        if (database.getTaxon(0xFFFFFFFFFFFFFFFF)) |_| {
+        if (database.getTaxonId(0xFFFFFFFFFFFFFFFF)) |_| {
             try console_writer.interface.print("Unexpected: found non-existent kmer\n", .{});
         } else {
             try console_writer.interface.print("Non-existent kmer correctly returned null\n", .{});
