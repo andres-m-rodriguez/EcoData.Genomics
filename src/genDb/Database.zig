@@ -1,5 +1,5 @@
 const std = @import("std");
-const Organism = @import("Organism.zig");
+const Taxon = @import("Taxon.zig");
 const Self = @This();
 
 const Io = std.Io;
@@ -12,27 +12,24 @@ const IndexData = union(enum) {
         file: File,
         mapping: MemoryMap,
     },
-    allocated: struct {
-        kmers: []u64,
-        taxons: []u32,
-    },
 };
 
 index: IndexData = .none,
 kmers: []const u64 = &.{},
-taxons: []const u32 = &.{},
+taxon_ids: []const u32 = &.{},
 k: u6,
-organisms: std.array_hash_map.Auto(u32, Organism) = .empty,
+l: u6,
+taxons: []const Taxon = &.{},
 
-pub fn init(k: u6) Self {
-    return .{ .k = k };
+pub fn init(k: u6, l: u6) Self {
+    return .{ .k = k, .l = l };
 }
 
 pub fn deinit(self: *Self, io: Io, allocator: std.mem.Allocator) void {
-    for (self.organisms.values()) |org| {
-        allocator.free(org.name);
+    for (self.taxons) |taxon| {
+        allocator.free(taxon.name);
     }
-    self.organisms.deinit(allocator);
+    allocator.free(self.taxons);
 
     switch (self.index) {
         .none => {},
@@ -40,18 +37,10 @@ pub fn deinit(self: *Self, io: Io, allocator: std.mem.Allocator) void {
             m.mapping.destroy(io);
             m.file.close(io);
         },
-        .allocated => |a| {
-            allocator.free(a.kmers);
-            allocator.free(a.taxons);
-        },
     }
 }
 
-pub fn loadOrganismsFromMemory(self: *Self, organisms: std.array_hash_map.Auto(u32, Organism)) void {
-    self.organisms = organisms;
-}
-
-pub fn loadIndexFromFile(self: *Self, io: Io, path: []const u8) !void {
+pub fn loadFromFile(self: *Self, io: Io, allocator: std.mem.Allocator, path: []const u8) !void {
     const file = try Io.Dir.cwd().openFile(io, path, .{});
     errdefer file.close(io);
 
@@ -69,50 +58,53 @@ pub fn loadIndexFromFile(self: *Self, io: Io, path: []const u8) !void {
     const k = data[0];
     if (k != self.k) return error.KMismatch;
 
-    const count = std.mem.readInt(u64, data[8..16], .little);
+    const l = data[1];
+    if (l != self.l) return error.LMismatch;
 
+    const kmer_count = std.mem.readInt(u64, data[8..16], .little);
+
+    // K-mers
     const kmers_start = 16;
-    const kmers_end = kmers_start + count * 8;
+    const kmers_end = kmers_start + kmer_count * 8;
     const kmers_bytes = data[kmers_start..kmers_end];
-    self.kmers = @as([*]const u64, @ptrCast(@alignCast(kmers_bytes.ptr)))[0..count];
+    self.kmers = @as([*]const u64, @ptrCast(@alignCast(kmers_bytes.ptr)))[0..kmer_count];
 
-    const taxons_end = kmers_end + count * 4;
-    const taxons_bytes = data[kmers_end..taxons_end];
-    self.taxons = @as([*]const u32, @ptrCast(@alignCast(taxons_bytes.ptr)))[0..count];
+    // Taxon IDs
+    const taxon_ids_end = kmers_end + kmer_count * 4;
+    const taxon_ids_bytes = data[kmers_end..taxon_ids_end];
+    self.taxon_ids = @as([*]const u32, @ptrCast(@alignCast(taxon_ids_bytes.ptr)))[0..kmer_count];
 
+    // Taxon count
+    const taxon_count = std.mem.readInt(u32, data[taxon_ids_end..][0..4], .little);
+
+    // Taxon names (variable length, need to allocate)
+    const taxons = try allocator.alloc(Taxon, taxon_count);
+    errdefer allocator.free(taxons);
+
+    var pos: usize = taxon_ids_end + 4;
+    for (0..taxon_count) |i| {
+        const name_len = std.mem.readInt(u16, data[pos..][0..2], .little);
+        pos += 2;
+        taxons[i] = .{ .name = try allocator.dupe(u8, data[pos..][0..name_len]) };
+        pos += name_len;
+    }
+
+    self.taxons = taxons;
     self.index = .{ .mapped = .{ .file = file, .mapping = mm } };
 }
 
-pub fn loadIndex(self: *Self, allocator: std.mem.Allocator, reader: *Io.Reader) !void {
-    // Header: k (1 byte) + padding (7 bytes) + count (8 bytes) = 16 bytes
-    const header = try reader.takeArray(16);
-    const k = header[0];
-    if (k != self.k) return error.KMismatch;
-
-    const count = std.mem.readInt(u64, header[8..16], .little);
-
-    const kmers = try allocator.alloc(u64, count);
-    errdefer allocator.free(kmers);
-    const taxons = try allocator.alloc(u32, count);
-    errdefer allocator.free(taxons);
-
-    for (0..count) |i| {
-        kmers[i] = try reader.takeInt(u64, .little);
-    }
-    for (0..count) |i| {
-        taxons[i] = try reader.takeInt(u32, .little);
-    }
-
-    self.kmers = kmers;
-    self.taxons = taxons;
-    self.index = .{ .allocated = .{ .kmers = kmers, .taxons = taxons } };
-}
-
-pub fn getTaxon(self: *const Self, encoded_kmer: u64) ?u32 {
+pub fn getTaxonId(self: *const Self, encoded_kmer: u64) ?u32 {
     const index = std.sort.binarySearch(u64, self.kmers, encoded_kmer, struct {
         pub fn cmp(key: u64, item: u64) std.math.Order {
             return std.math.order(key, item);
         }
     }.cmp);
-    return if (index) |i| self.taxons[i] else null;
+    return if (index) |i| self.taxon_ids[i] else null;
+}
+
+pub fn getTaxon(self: *const Self, taxon_id: u32) ?Taxon {
+    if (taxon_id < self.taxons.len) {
+        return self.taxons[taxon_id];
+    }
+    return null;
 }
