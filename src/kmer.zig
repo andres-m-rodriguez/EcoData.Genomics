@@ -5,9 +5,9 @@ pub const Index = @import("kmer/Index.zig");
 
 pub const K = struct {
     pub const kraken1: u6 = 31;
-    pub const kraken2: u6 = 35;
+    pub const kraken2_k: u6 = 35;
+    pub const kraken2_l: u6 = 31;
     pub const default: u6 = 31;
-    pub const minimizer: u6 = 21;
 };
 
 test {
