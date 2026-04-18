@@ -9,10 +9,14 @@ pub const seqio = @import("seqio.zig");
 pub const trimmer = @import("trimmer.zig").Trimmer;
 pub const kmer = @import("kmer.zig");
 pub const genDb = @import("genDb.zig");
+pub const classifier = @import("classifier.zig");
+pub const pipeline = @import("pipeline.zig");
 
 test {
     _ = seqio;
     _ = trimmer;
     _ = kmer;
     _ = genDb;
+    _ = classifier;
+    _ = pipeline;
 }
