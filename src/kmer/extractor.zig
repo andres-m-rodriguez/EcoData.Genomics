@@ -28,28 +28,39 @@ pub const Iterator = struct {
         const l: usize = self.l;
         const n = k - l + 1;
 
-        if (self.i + k > self.sequence.len)
-            return null;
+        while (self.i + k <= self.sequence.len) {
+            const i = self.i;
+            self.i += 1;
 
-        defer self.i += 1;
+            if (!self.started) {
+                const first_l = encode(self.sequence[i..][0..l]) orelse continue;
+                self.encs[0] = first_l;
 
-        if (!self.started) {
-            self.started = true;
-            self.encs[0] = encode(self.sequence[self.i..][0..l]).?;
-            for (1..n) |j| {
-                const bits = encoding.encodeBase(self.sequence[self.i + j + l - 1]).?;
-                self.encs[j] = ((self.encs[j - 1] << 2) | bits) & self.mask;
+                var valid = true;
+                for (1..n) |j| {
+                    const bits = encoding.encodeBase(self.sequence[i + j + l - 1]) orelse {
+                        valid = false;
+                        break;
+                    };
+                    self.encs[j] = ((self.encs[j - 1] << 2) | bits) & self.mask;
+                }
+                if (!valid) continue;
+                self.started = true;
+            } else {
+                const bits = encoding.encodeBase(self.sequence[i + k - 1]) orelse {
+                    self.started = false;
+                    continue;
+                };
+                for (0..n - 1) |j| self.encs[j] = self.encs[j + 1];
+                self.encs[n - 1] = ((self.encs[n - 2] << 2) | bits) & self.mask;
             }
-        } else {
-            const bits = encoding.encodeBase(self.sequence[self.i + k - 1]).?;
-            for (0..n - 1) |j| self.encs[j] = self.encs[j + 1];
-            self.encs[n - 1] = ((self.encs[n - 2] << 2) | bits) & self.mask;
-        }
 
-        var min = self.encs[0];
-        for (1..n) |j| if (self.encs[j] < min) {
-            min = self.encs[j];
-        };
-        return min;
+            var min = self.encs[0];
+            for (1..n) |j| if (self.encs[j] < min) {
+                min = self.encs[j];
+            };
+            return min;
+        }
+        return null;
     }
 };

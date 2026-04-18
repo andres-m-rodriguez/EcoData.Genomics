@@ -2,6 +2,7 @@ pub const encode = @import("kmer/encoding.zig").encode;
 pub const decode = @import("kmer/encoding.zig").decode;
 pub const Counter = @import("kmer/Counter.zig");
 pub const Index = @import("kmer/Index.zig");
+pub const extractor = @import("kmer/extractor.zig");
 
 pub const K = struct {
     pub const kraken1: u6 = 31;
