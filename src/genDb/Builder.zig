@@ -38,6 +38,21 @@ pub fn addFasta(self: *Self, allocator: std.mem.Allocator, reader: *std.Io.Reade
 
     try self.taxons.append(allocator, Taxon{ .name = name });
 }
+pub fn merge(self: *Self, allocator: std.mem.Allocator, other: *Self) !void {
+    const taxon_offset: u32 = @intCast(self.taxons.items.len);
+
+    for (other.taxons.items) |taxon| {
+        try self.taxons.append(allocator, Taxon{ .name = try allocator.dupe(u8, taxon.name) });
+    }
+
+    for (other.look_up.map.keys(), other.look_up.map.values()) |key, val| {
+        const entry = try self.look_up.map.getOrPut(allocator, key);
+        if (!entry.found_existing) {
+            entry.value_ptr.* = val + taxon_offset;
+        }
+    }
+}
+
 pub fn build(self: *Self, writer: *std.Io.Writer) !void {
     self.look_up.sort();
 
