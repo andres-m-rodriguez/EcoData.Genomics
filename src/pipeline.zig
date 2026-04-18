@@ -5,80 +5,36 @@ const kmer = EcoData_Genomics.kmer;
 const genDb = EcoData_Genomics.genDb;
 const classifier = EcoData_Genomics.classifier;
 const trimmer = @import("trimmer.zig");
-const benchmark_refs = @import("benchmark_refs.zig");
 
 pub const TrimmedRead = trimmer.TrimmedRead;
 
-fn getNumChunks() usize {
-    const cpu_count = std.Thread.getCpuCount() catch 4;
-    const total_files = benchmark_refs.gzip.len + benchmark_refs.raw.len;
-    return @min(cpu_count, total_files);
-}
+const reference_files = [_][]const u8{
+    "data/reference_genomes/ecoli_k12.fna.gz",
+    "data/reference_genomes/legionella_pneumophila.fna.gz",
+    "data/reference_genomes/pseudomonas_aeruginosa.fna.gz",
+    "data/reference_genomes/salmonella_enterica.fna.gz",
+    "data/reference_genomes/vibrio_cholerae.fna.gz",
+};
 
 pub fn buildDatabase(io: std.Io, gpa: std.mem.Allocator, output_path: []const u8) !genDb.Database {
-    const cached = dbExists(io, output_path);
+    if (!dbExists(io, output_path)) {
+        var builder = genDb.Builder.init(kmer.K.kraken2_k, kmer.K.kraken2_l);
+        defer builder.deinit(gpa);
 
-    if (!cached) {
-        const num_chunks = getNumChunks();
-        const builders = try gpa.alloc(genDb.Builder, num_chunks);
-        defer gpa.free(builders);
-
-        for (builders) |*b| {
-            b.* = genDb.Builder.init(kmer.K.kraken2_k, kmer.K.kraken2_l);
-            try b.look_up.map.ensureTotalCapacity(gpa, 100_000_000 / num_chunks);
-        }
-
-        var total_errors: usize = 0;
-        for (builders, 0..) |*b, i| {
-            total_errors += buildChunk(io, gpa, b, i, num_chunks);
-        }
-
-        var final = genDb.Builder.init(kmer.K.kraken2_k, kmer.K.kraken2_l);
-        defer final.deinit(gpa);
-        try final.look_up.map.ensureTotalCapacity(gpa, 500_000_000);
-
-        for (builders) |*b| {
-            try final.merge(gpa, b);
-            b.deinit(gpa);
-        }
-
-        if (total_errors > 0) {
-            std.debug.print("Warning: {d} files failed to load\n", .{total_errors});
+        for (reference_files) |path| {
+            try loadFastaGzip(io, gpa, &builder, path);
         }
 
         const output_file = try std.Io.Dir.cwd().createFile(io, output_path, .{});
         defer output_file.close(io);
         var output_buffer: [128 * 1024]u8 = undefined;
         var output_writer = output_file.writer(io, &output_buffer);
-        try final.build(&output_writer.interface);
+        try builder.build(&output_writer.interface);
     }
 
     var database = genDb.Database.init(kmer.K.kraken2_k, kmer.K.kraken2_l);
     try database.loadFromFile(io, gpa, output_path);
     return database;
-}
-
-fn buildChunk(io: std.Io, gpa: std.mem.Allocator, builder: *genDb.Builder, chunk_idx: usize, num_chunks: usize) usize {
-    var error_count: usize = 0;
-
-    for (benchmark_refs.gzip, 0..) |path, idx| {
-        if (idx % num_chunks != chunk_idx) continue;
-        loadFastaGzip(io, gpa, builder, path) catch |err| {
-            std.debug.print("Error loading {s}: {}\n", .{ path, err });
-            error_count += 1;
-            continue;
-        };
-    }
-    for (benchmark_refs.raw, 0..) |path, idx| {
-        if (idx % num_chunks != chunk_idx) continue;
-        loadFastaRaw(io, gpa, builder, path) catch |err| {
-            std.debug.print("Error loading {s}: {}\n", .{ path, err });
-            error_count += 1;
-            continue;
-        };
-    }
-
-    return error_count;
 }
 
 pub fn loadAndTrimReads(io: std.Io, gpa: std.mem.Allocator, reads_path: []const u8) ![]TrimmedRead {
@@ -158,10 +114,3 @@ fn loadFastaGzip(io: std.Io, gpa: std.mem.Allocator, builder: *genDb.Builder, pa
     try builder.addFasta(gpa, &decompressor.reader);
 }
 
-fn loadFastaRaw(io: std.Io, gpa: std.mem.Allocator, builder: *genDb.Builder, path: []const u8) !void {
-    const file = try std.Io.Dir.cwd().openFile(io, path, .{});
-    defer file.close(io);
-    var file_buffer: [128 * 1024]u8 = undefined;
-    var file_reader = file.reader(io, &file_buffer);
-    try builder.addFasta(gpa, &file_reader.interface);
-}
