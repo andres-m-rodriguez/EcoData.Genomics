@@ -2,41 +2,32 @@ const std = @import("std");
 const EcoData_Genomics = @import("EcoData_Genomics");
 const pipeline = EcoData_Genomics.pipeline;
 
-const Config = struct {
-    references: []const []const u8 = &.{
-        "data/reference_genomes/ecoli_k12.fna.gz",
-        "data/reference_genomes/legionella_pneumophila.fna.gz",
-        "data/reference_genomes/pseudomonas_aeruginosa.fna.gz",
-        "data/reference_genomes/salmonella_enterica.fna.gz",
-        "data/reference_genomes/vibrio_cholerae.fna.gz",
-    },
-    database_path: []const u8 = "output.egdb",
-    reads_path: []const u8 = "data/test_reads/mixed_reads.fastq.gz",
-};
-
 pub fn main(init: std.process.Init) !void {
     var console_buffer: [4096]u8 = undefined;
     var console = std.Io.File.stdout().writer(init.io, &console_buffer);
-    const start = std.Io.Clock.awake.now(init.io);
+    const print = &console.interface;
 
-    defer {
-        const end = std.Io.Clock.awake.now(init.io);
-        const ms = start.durationTo(end).toMilliseconds();
-        console.interface.print("\nCompleted in {d:.2}s\n", .{@as(f64, @floatFromInt(ms)) / 1000.0}) catch {};
-        console.interface.flush() catch {};
-    }
+    const db_path = "output.egdb";
+    const reads_path = "data/test_reads/mixed_reads.fastq.gz";
 
-    const config = Config{};
-    var p = pipeline.Pipeline.init(init.io, init.gpa, &console.interface, 5);
+    var db_future = try init.io.concurrent(pipeline.buildDatabase, .{ init.io, init.gpa, db_path });
+    var reads_future = try init.io.concurrent(pipeline.loadAndTrimReads, .{ init.io, init.gpa, reads_path });
 
-    var database = try pipeline.buildDatabase(&p, config.references, config.database_path);
+    try print.print("[1/3] Building database...\n", .{});
+    try print.print("[2/3] Loading and trimming reads...\n", .{});
+    try print.flush();
+
+    var database = try db_future.await(init.io);
     defer database.deinit(init.io, init.gpa);
 
-    const reads = try pipeline.loadReads(&p, config.reads_path);
-    defer init.gpa.free(reads);
-
-    const trimmed = try pipeline.trimReads(&p, reads);
+    const trimmed = try reads_future.await(init.io);
     defer init.gpa.free(trimmed);
 
-    try pipeline.classifyReads(&p, database, trimmed);
+    try print.print("       Database: {} k-mers, {} taxons\n", .{ database.kmers.len, database.taxons.len });
+    try print.print("       Reads: {} trimmed\n", .{trimmed.len});
+
+    try print.print("[3/3] Classifying...\n", .{});
+    try print.flush();
+
+    try pipeline.classifyReads(init.io, init.gpa, print, database, trimmed);
 }
