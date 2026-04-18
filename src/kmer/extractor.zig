@@ -1,4 +1,3 @@
-const std = @import("std");
 const encoding = @import("encoding.zig");
 pub const encode = encoding.encode;
 pub const decode = encoding.decode;
@@ -6,44 +5,51 @@ pub const decode = encoding.decode;
 pub fn extract(sequence: []const u8, k: u6, l: u6) Iterator {
     return Iterator{
         .sequence = sequence,
-        .k = k,
         .i = 0,
+        .k = k,
         .l = l,
+        .mask = (@as(u64, 1) << @as(u6, l * 2)) - 1,
+        .encs = [_]u64{0} ** 64,
+        .started = false,
     };
 }
-pub const Result = union(enum) {
-    valid: u64,
-    invalid: usize,
-    pub fn toValid(self: Result) ?u64 {
-        return switch (self) {
-            .valid => |v| v,
-            .invalid => null,
-        };
-    }
-};
+
 pub const Iterator = struct {
     sequence: []const u8,
     i: usize,
     k: u6,
     l: u6,
-    pub fn next(self: *Iterator) ?Result {
-        if (self.i + self.k > self.sequence.len)
+    mask: u64,
+    encs: [64]u64,
+    started: bool,
+
+    pub fn next(self: *Iterator) ?u64 {
+        const k: usize = self.k;
+        const l: usize = self.l;
+        const n = k - l + 1;
+
+        if (self.i + k > self.sequence.len)
             return null;
 
         defer self.i += 1;
 
-        const window = self.sequence[self.i..][0..self.k];
-
-        var min: ?u64 = null;
-
-        for (0..self.k - self.l + 1) |j| {
-            const encoded = encode(window[j..][0..self.l]) orelse continue;
-            if (min == null or encoded < min.?) {
-                min = encoded;
+        if (!self.started) {
+            self.started = true;
+            self.encs[0] = encode(self.sequence[self.i..][0..l]).?;
+            for (1..n) |j| {
+                const bits = encoding.encodeBase(self.sequence[self.i + j + l - 1]).?;
+                self.encs[j] = ((self.encs[j - 1] << 2) | bits) & self.mask;
             }
+        } else {
+            const bits = encoding.encodeBase(self.sequence[self.i + k - 1]).?;
+            for (0..n - 1) |j| self.encs[j] = self.encs[j + 1];
+            self.encs[n - 1] = ((self.encs[n - 2] << 2) | bits) & self.mask;
         }
 
-        if (min) |m| return .{ .valid = m };
-        return .{ .invalid = self.i };
+        var min = self.encs[0];
+        for (1..n) |j| if (self.encs[j] < min) {
+            min = self.encs[j];
+        };
+        return min;
     }
 };

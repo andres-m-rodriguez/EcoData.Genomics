@@ -30,8 +30,7 @@ pub fn addSequence(self: *Self, allocator: std.mem.Allocator, sequence: []const 
     if (k == 0 or sequence.len < k) return;
 
     var extraction_it = extractor.extract(sequence, k, l);
-    while (extraction_it.next()) |encoded_extract| {
-        const encoded = encoded_extract.toValid() orelse continue;
+    while (extraction_it.next()) |encoded| {
         const entry = try self.map.getOrPut(allocator, encoded);
         if (!entry.found_existing) {
             entry.value_ptr.* = taxon_id;

@@ -1,16 +1,19 @@
 pub fn encode(kmer: []const u8) ?u64 {
     var result: u64 = 0;
     for (kmer) |base| {
-        const bits: u64 = switch (base) {
-            'A', 'a' => 0b00,
-            'C', 'c' => 0b01,
-            'G', 'g' => 0b10,
-            'T', 't' => 0b11,
-            else => return null,
-        };
+        const bits = encodeBase(base) orelse return null;
         result = (result << 2) | bits;
     }
     return result;
+}
+pub fn encodeBase(base: u8) ?u2 {
+    return switch (base) {
+        'A', 'a' => 0b00,
+        'C', 'c' => 0b01,
+        'G', 'g' => 0b10,
+        'T', 't' => 0b11,
+        else => null,
+    };
 }
 
 pub fn decode(encoded: u64, k: u6, buf: []u8) []u8 {
